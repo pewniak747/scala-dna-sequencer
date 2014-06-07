@@ -2,10 +2,11 @@ package sequencer
 
 import akka.actor._
 import scala.concurrent.duration._
+import scala.language.postfixOps
 import scala.collection.mutable
 import scala.io.Source
 
-case class Count
+case class Count()
 object One extends Count
 object More extends Count
 
@@ -82,7 +83,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) 
       context.setReceiveTimeout(1 second)
     }
 
-    case ReceiveTimeout => { exit() }
+    case ReceiveTimeout => { context.system.shutdown() }
   }
 }
 
