@@ -44,11 +44,10 @@ class Slave(val kmerLength: Int) extends Actor {
       val last = sequence.last(kmerLength - 1)
       val filteredWS = spectrumWS.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
       val filteredRY = spectrumRY.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
-      filteredWS.keySet.foreach { letter =>
-        for (ws <- filteredWS.get(letter); ry <- filteredRY.get(letter)) yield {
-          val nextSequence = Sequence(sequence.data + letter)
-          sender ! Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), nextSequence)
-        }
+
+      for ((letter, ws) <- filteredWS; ry <- filteredRY.get(letter)) yield {
+        val nextSequence = Sequence(sequence.data + letter)
+        sender ! Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), nextSequence)
       }
     }
   }
