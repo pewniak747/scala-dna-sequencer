@@ -26,7 +26,9 @@ case class Sequence(val data: String) {
 
   private
 
-  def matchLetter(a: Char, b: Char) = {
+  def matchLetter(a: Char, b: Char): Boolean = {
+    if(a == b) return true
+
     if (a == 'A') b == 'W' || b == 'R'
     else if (a == 'C') b == 'S' || b == 'Y'
     else if (a == 'T') b == 'W' || b == 'Y'
@@ -36,18 +38,24 @@ case class Sequence(val data: String) {
 
 }
 
-case class Node(val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count], val sequence: Sequence)
+case class Node(val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count], val usedWS: Map[Sequence, Int], val usedRY: Map[Sequence, Int], val sequence: Sequence) {
+
+  def isFinished: Boolean =
+    (spectrumWS.keySet diff usedWS.keySet).size == 0 && (spectrumRY.keySet diff usedRY.keySet).size == 0
+
+}
 
 class Slave(val kmerLength: Int) extends Actor {
   def receive = {
-    case Node(spectrumWS, spectrumRY, sequence) => {
+    case Node(spectrumWS, spectrumRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
       val filteredWS = spectrumWS.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
       val filteredRY = spectrumRY.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
 
       for ((letter, ws) <- filteredWS; ry <- filteredRY.get(letter)) yield {
         val nextSequence = Sequence(sequence.data + letter)
-        sender ! Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), nextSequence)
+        val nextNode = Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
+        sender ! nextNode
       }
     }
   }
@@ -58,6 +66,13 @@ class Slave(val kmerLength: Int) extends Actor {
     spectrum(sequence) match {
       case More => spectrum
       case One => spectrum - sequence
+    }
+  }
+
+  def incrementUsed(used: Map[Sequence, Int], sequence: Sequence) = {
+    used.get(sequence) match {
+      case Some(count) => used + ((sequence, count + 1))
+      case None => used + ((sequence, 1))
     }
   }
 }
@@ -72,11 +87,11 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) 
   var currentSlave = 0
 
   def receive = {
-    case Node(_, _, sequence) if sequence.length == sequenceLength => {
+    case node@Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
       println("Found solution: " + sequence)
     }
 
-    case node@Node(_, _, _) => {
+    case node@Node(_, _, _, _, _) => {
       slaves(currentSlave) ! node
       currentSlave = (currentSlave + 1) % slaveCount
       context.setReceiveTimeout(1 second)
@@ -119,10 +134,13 @@ object Main {
       }
     }
 
+    val initialWS = s1.keys.find { initial.matches(_) }.get
+    val initialRY = s2.keys.find { initial.matches(_) }.get
+
     val actorSystem = ActorSystem()
 
     val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, 4)))
 
-    master ! Node(s1.toMap, s2.toMap, initial)
+    master ! Node(s1.toMap, s2.toMap, Map(initialWS -> 1), Map(initialRY -> 1), initial)
   }
 }
