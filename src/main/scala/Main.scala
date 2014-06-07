@@ -6,7 +6,7 @@ import scala.language.postfixOps
 import scala.collection.mutable
 import scala.io.Source
 
-case class Count()
+trait Count
 object One extends Count
 object More extends Count
 
