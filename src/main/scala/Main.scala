@@ -24,35 +24,31 @@ case class Sequence(val data: String) {
     other.length == length && data.zip(other.data).forall { case (a, b) => matchLetter(a, b) }
   }
 
-  def normalizedWS = {
-    val newSeq: String = data.dropRight(1).map { l =>
-      if (l == 'A' || l == 'T') 'W'
-      else if (l == 'C' || l == 'G') 'S'
-      else l
-    }.mkString("") + data.last
-    Sequence(newSeq)
-  }
+  def normalizedWS = normalized(0)
 
-  def normalizedRY = {
-    val newSeq: String = data.dropRight(1).map { l =>
-      if (l == 'A' || l == 'G') 'R'
-      else if (l == 'C' || l == 'T') 'Y'
-      else l
-    }.mkString("") + data.last
-    Sequence(newSeq)
-  }
+  def normalizedRY = normalized(1)
 
   private
+
+  def normalized(t: Int) = {
+    val newSeq: String = data.dropRight(1).map { l =>
+      matchings(l)(t)
+    }.mkString("") + data.last
+    Sequence(newSeq)
+  }
 
   def matchLetter(a: Char, b: Char): Boolean = {
     if(a == b) return true
 
-    if (a == 'A') b == 'W' || b == 'R'
-    else if (a == 'C') b == 'S' || b == 'Y'
-    else if (a == 'T') b == 'W' || b == 'Y'
-    else if (a == 'G') b == 'S' || b == 'R'
-    else false
+    matchings(a) contains b
   }
+
+  val matchings = Map(
+    'A' -> List('W', 'R'),
+    'C' -> List('S', 'Y'),
+    'T' -> List('W', 'Y'),
+    'G' -> List('S', 'R')
+  )
 
 }
 
