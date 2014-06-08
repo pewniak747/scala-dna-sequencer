@@ -92,11 +92,11 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) 
       println("Found solution: " + sequence)
     }
 
-    case node@Node(_, _, _, _, _) => {
+    case node@Node(_, _, _, _, sequence) => {
       slaves(currentSlave) ! node
       currentSlave = (currentSlave + 1) % slaveCount
       nodesCount += 1
-      context.setReceiveTimeout(1 second)
+      context.setReceiveTimeout(100 milliseconds)
     }
 
     case ReceiveTimeout => {
@@ -115,27 +115,35 @@ object Main {
     var initial = Sequence("")
     var sequenceLength = 0
     var probeLength = 0
+    var currentCount: Count = One
 
     val in = Source.stdin
-    val configLine = """(\d+) (\d+) ([ACTG]+)""".r
-    val spectrumLine = """([ACTGWSRY]+) (1|more)""".r
+    val initialLine = """;INFO\|([ACGT]+)\|(\d+)""".r
+    val spectrumLine = """;BINARY-(WS|RY)\|(\d+)""".r
+    val countLine = """>(1|N)""".r
+    val probeLine = """([WSRY]+[ACTG])""".r
 
-    def addToSpectrums(probe: String, c: String) = {
-      val count = if (c == "more") More else One
+    def addToSpectrums(probe: String, count: Count) = {
       if (probe(0) == 'W' || probe(0) == 'S') s1.put(Sequence(probe), count)
       else s2.put(Sequence(probe), count)
     }
 
     for (line <- Source.stdin.getLines) {
       line match {
-        case configLine(sLength, pLength, init) => {
-          sequenceLength = sLength.toInt
-          probeLength = pLength.toInt
-          initial = Sequence(init)
+        case initialLine(_initial, _sequenceLength) => {
+          sequenceLength = _sequenceLength.toInt
+          initial = Sequence(_initial)
         }
-        case spectrumLine(probe, count) => { 
-          addToSpectrums(probe, count)
+        case spectrumLine(_, _probeLength) => { 
+          probeLength = _probeLength.toInt + 1
         }
+        case countLine(_count) => {
+          currentCount = if (_count == "N") More else One
+        }
+        case probeLine(_probe) => {
+          addToSpectrums(_probe, currentCount)
+        }
+        case _ => { }
       }
     }
 
