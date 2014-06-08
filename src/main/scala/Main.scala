@@ -85,6 +85,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) 
 
   val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength))) }
   var currentSlave = 0
+  var nodesCount: Long = 0
 
   def receive = {
     case node@Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
@@ -94,10 +95,14 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) 
     case node@Node(_, _, _, _, _) => {
       slaves(currentSlave) ! node
       currentSlave = (currentSlave + 1) % slaveCount
+      nodesCount += 1
       context.setReceiveTimeout(1 second)
     }
 
-    case ReceiveTimeout => { context.system.shutdown() }
+    case ReceiveTimeout => {
+      println(s"Searched $nodesCount nodes")
+      context.system.shutdown()
+    }
   }
 }
 
