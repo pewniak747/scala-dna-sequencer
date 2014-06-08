@@ -24,6 +24,24 @@ case class Sequence(val data: String) {
     other.length == length && data.zip(other.data).forall { case (a, b) => matchLetter(a, b) }
   }
 
+  def normalizedWS = {
+    val newSeq: String = data.dropRight(1).map { l =>
+      if (l == 'A' || l == 'T') 'W'
+      else if (l == 'C' || l == 'G') 'S'
+      else l
+    }.mkString("") + data.last
+    Sequence(newSeq)
+  }
+
+  def normalizedRY = {
+    val newSeq: String = data.dropRight(1).map { l =>
+      if (l == 'A' || l == 'G') 'R'
+      else if (l == 'C' || l == 'T') 'Y'
+      else l
+    }.mkString("") + data.last
+    Sequence(newSeq)
+  }
+
   private
 
   def matchLetter(a: Char, b: Char): Boolean = {
@@ -49,10 +67,14 @@ class Slave(val kmerLength: Int) extends Actor {
   def receive = {
     case Node(spectrumWS, spectrumRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
-      val filteredWS = spectrumWS.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
-      val filteredRY = spectrumRY.keySet.filter { seq => last.matches(seq.dropLast) }.map { seq => (seq.data.last, seq) }.toMap
+      val potential = basicNucleotides.map { n =>
+        val potentialSequence = Sequence(last.data + n)
+        (potentialSequence.normalizedWS, potentialSequence.normalizedRY, n)
+      }
 
-      for ((letter, ws) <- filteredWS; ry <- filteredRY.get(letter)) yield {
+      for {
+        (ws, ry, letter) <- potential if (spectrumWS.keySet.contains(ws) && spectrumRY.contains(ry))
+      } yield {
         val nextSequence = Sequence(sequence.data + letter)
         val nextNode = Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
         sender ! nextNode
@@ -75,6 +97,8 @@ class Slave(val kmerLength: Int) extends Actor {
       case None => used + ((sequence, 1))
     }
   }
+
+  val basicNucleotides = List('A', 'C', 'T', 'G')
 }
 
 class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) extends Actor {
