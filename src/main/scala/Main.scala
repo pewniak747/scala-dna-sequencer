@@ -52,16 +52,16 @@ case class Sequence(val data: String) {
 
 }
 
-case class Node(val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count], val usedWS: Map[Sequence, Int], val usedRY: Map[Sequence, Int], val sequence: Sequence) {
+case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], val usedWS: Map[Sequence, Int], val usedRY: Map[Sequence, Int], val sequence: Sequence) {
 
   def isFinished: Boolean =
-    (spectrumWS.keySet diff usedWS.keySet).size == 0 && (spectrumRY.keySet diff usedRY.keySet).size == 0
+    (availableWS diff usedWS.keySet).size == 0 && (availableRY diff usedRY.keySet).size == 0
 
 }
 
-class Slave(val kmerLength: Int) extends Actor {
+class Slave(val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) extends Actor {
   def receive = {
-    case Node(spectrumWS, spectrumRY, usedWS, usedRY, sequence) => {
+    case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
       val potential = basicNucleotides.map { n =>
         val potentialSequence = Sequence(last.data + n)
@@ -69,10 +69,10 @@ class Slave(val kmerLength: Int) extends Actor {
       }
 
       for {
-        (ws, ry, letter) <- potential if (spectrumWS.keySet.contains(ws) && spectrumRY.contains(ry))
+        (ws, ry, letter) <- potential if (availableWS.contains(ws) && availableRY.contains(ry))
       } yield {
         val nextSequence = Sequence(sequence.data + letter)
-        val nextNode = Node(cutSpectrum(spectrumWS, ws), cutSpectrum(spectrumRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
+        val nextNode = Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
         sender ! nextNode
       }
     }
@@ -80,10 +80,10 @@ class Slave(val kmerLength: Int) extends Actor {
 
   private
 
-  def cutSpectrum(spectrum: Map[Sequence, Count], sequence: Sequence) = {
+  def cutSpectrum(spectrum: Map[Sequence, Count], available: Set[Sequence], sequence: Sequence) = {
     spectrum(sequence) match {
-      case More => spectrum
-      case One => spectrum - sequence
+      case More => available
+      case One => available - sequence
     }
   }
 
@@ -97,13 +97,13 @@ class Slave(val kmerLength: Int) extends Actor {
   val basicNucleotides = List('A', 'C', 'T', 'G')
 }
 
-class Master(val sequenceLength: Int, val kmerLength: Int, val slaveCount: Int) extends Actor {
+class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count], val slaveCount: Int) extends Actor {
 
   require(sequenceLength > 1)
   require(kmerLength > 1)
   require(slaveCount > 0)
 
-  val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength))) }
+  val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, spectrumWS, spectrumRY))) }
   var currentSlave = 0
   var nodesCount: Long = 0
 
@@ -172,8 +172,8 @@ object Main {
 
     val actorSystem = ActorSystem()
 
-    val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, 4)))
+    val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, s1.toMap, s2.toMap, 4)))
 
-    master ! Node(s1.toMap, s2.toMap, Map(initialWS -> 1), Map(initialRY -> 1), initial)
+    master ! Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial)
   }
 }
