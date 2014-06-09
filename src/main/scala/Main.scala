@@ -60,18 +60,25 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
 }
 
 class Slave(val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) extends Actor {
+
+  val moves = mutable.Map[Sequence, Set[(Sequence, Sequence)]]()
+
   def receive = {
     case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
-      val potential = basicNucleotides.map { n =>
-        val potentialSequence = Sequence(last.data + n)
-        (potentialSequence.normalizedWS, potentialSequence.normalizedRY, n)
+
+      if (!moves.contains(last)) {
+        val potential = basicNucleotides.map { n =>
+          val potentialSequence = Sequence(last.data + n)
+          (potentialSequence.normalizedWS, potentialSequence.normalizedRY)
+        }
+        moves.put(last, potential.toSet)
       }
 
       for {
-        (ws, ry, letter) <- potential if (availableWS.contains(ws) && availableRY.contains(ry))
+        (ws, ry) <- moves(last) if (availableWS.contains(ws) && availableRY.contains(ry))
       } yield {
-        val nextSequence = Sequence(sequence.data + letter)
+        val nextSequence = Sequence(sequence.data + ws.data.last)
         val nextNode = Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
         sender ! nextNode
       }
@@ -172,7 +179,7 @@ object Main {
 
     val actorSystem = ActorSystem()
 
-    val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, s1.toMap, s2.toMap, 4)))
+    val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, s1.toMap, s2.toMap, 2)))
 
     master ! Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial)
   }
