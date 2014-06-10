@@ -57,14 +57,31 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
   def isFinished: Boolean =
     (availableWS diff usedWS.keySet).size == 0 && (availableRY diff usedRY.keySet).size == 0
 
+  def allowMove(ws: Sequence, ry: Sequence): Boolean =
+    availableWS.contains(ws) && availableRY.contains(ry)
+
+  def isAllowed(spectrumWS: Map[Sequence, Count], spectrumRY: Map[Sequence, Count], left: Int) =
+    isAllowedSpectrum(spectrumWS, availableWS, usedWS, left) && isAllowedSpectrum(spectrumRY, availableRY, usedRY, left)
+
+  private
+
+  def isAllowedSpectrum(spectrum: Map[Sequence, Count], available: Set[Sequence], used: Map[Sequence, Int], left: Int) = {
+    val needed = spectrum.filter { case(seq, count) => count match {
+      case More if used contains seq => used(seq) < 2
+      case One if !available.contains(seq) => false
+      case _ => true
+    } }
+    needed.size <= left
+  }
+
 }
 
-class Slave(val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) extends Actor {
+class Slave(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) extends Actor {
 
   val moves = mutable.Map[Sequence, Set[(Sequence, Sequence)]]()
 
   def receive = {
-    case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
+    case node@Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
 
       if (!moves.contains(last)) {
@@ -76,11 +93,14 @@ class Slave(val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spect
       }
 
       for {
-        (ws, ry) <- moves(last) if (availableWS.contains(ws) && availableRY.contains(ry))
+        (ws, ry) <- moves(last) if node.allowMove(ws, ry)
       } yield {
         val nextSequence = Sequence(sequence.data + ws.data.last)
         val nextNode = Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
-        sender ! nextNode
+        if (nextNode.isAllowed(spectrumWS, spectrumRY, sequenceLength - sequence.length))
+          sender ! nextNode 
+        else
+          println("CUT at depth " + sequence.length)
       }
     }
   }
@@ -110,7 +130,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
   require(kmerLength > 1)
   require(slaveCount > 0)
 
-  val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, spectrumWS, spectrumRY))) }
+  val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, sequenceLength, spectrumWS, spectrumRY))) }
   var currentSlave = 0
   var nodesCount: Long = 0
 
