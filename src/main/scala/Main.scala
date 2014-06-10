@@ -66,12 +66,12 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
   private
 
   def isAllowedSpectrum(spectrum: Map[Sequence, Count], available: Set[Sequence], used: Map[Sequence, Int], left: Int) = {
-    val needed = spectrum.filter { case(seq, count) => count match {
-      case More if used contains seq => used(seq) < 2
-      case One if !available.contains(seq) => false
-      case _ => true
-    } }
-    needed.size <= left
+    val needed = available.toList.map { seq => spectrum(seq) match {
+      case More if used contains seq => if(used(seq) < 2) 1 else 0
+      case More => 2
+      case _ => 1
+    } }.sum
+    needed <= left
   }
 
 }
@@ -143,6 +143,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
       slaves(currentSlave) ! node
       currentSlave = (currentSlave + 1) % slaveCount
       nodesCount += 1
+      if(nodesCount % 100000 == 0) println(s"Searched $nodesCount nodes so far...")
       context.setReceiveTimeout(100 milliseconds)
     }
 
@@ -198,6 +199,8 @@ object Main {
     val initialRY = s2.keys.find { initial.matches(_) }.get
 
     val actorSystem = ActorSystem()
+
+    println("Initialized distributed environment...")
 
     val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, s1.toMap, s2.toMap, 2)))
 
