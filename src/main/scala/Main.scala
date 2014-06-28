@@ -161,6 +161,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
       println("-----")
       println("Finished processing")
       println(s"Sequence length: $sequenceLength")
+      println(s"Probe length: $kmerLength")
       println(s"Spectrum WS ones: $wsOnes")
       println(s"Spectrum WS mores: $wsMores")
       println(s"Spectrum RY ones: $ryOnes")
