@@ -134,11 +134,13 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
   val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, sequenceLength, spectrumWS, spectrumRY))) }
   var currentSlave = 0
   var nodesCount: Long = 0
+  var solutionsCount: Long = 0
   val startTime = Platform.currentTime
 
   def receive = {
     case node@Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
       println("Found solution: " + sequence)
+      solutionsCount += 1
     }
 
     case node@Node(_, _, _, _, sequence) => {
@@ -151,7 +153,20 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
 
     case ReceiveTimeout => {
       val time = (Platform.currentTime - startTime) / 1000.0
-      println(s"Searched $nodesCount nodes")
+      val wsOnes = spectrumWS.values.filter { _ == One }.size
+      val wsMores = spectrumWS.values.filter { _ == More }.size
+      val ryOnes = spectrumRY.values.filter { _ == One }.size
+      val ryMores = spectrumRY.values.filter { _ == More }.size
+
+      println("-----")
+      println("Finished processing")
+      println(s"Sequence length: $sequenceLength")
+      println(s"Spectrum WS ones: $wsOnes")
+      println(s"Spectrum WS mores: $wsMores")
+      println(s"Spectrum RY ones: $ryOnes")
+      println(s"Spectrum RY mores: $ryMores")
+      println(s"Found solutions: $solutionsCount")
+      println(s"Searched nodes: $nodesCount")
       println(s"Elapsed time: $time")
       context.system.shutdown()
     }
