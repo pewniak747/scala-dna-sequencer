@@ -60,8 +60,8 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
   def allowMove(ws: Sequence, ry: Sequence): Boolean =
     availableWS.contains(ws) && availableRY.contains(ry)
 
-  def isAllowed(spectrumWS: Map[Sequence, Count], spectrumRY: Map[Sequence, Count], left: Int) =
-    isAllowedSpectrum(spectrumWS, availableWS, usedWS, left) && isAllowedSpectrum(spectrumRY, availableRY, usedRY, left)
+  def isAllowed(spectrumWS: Map[Sequence, Count], spectrumRY: Map[Sequence, Count], left: Int) = true
+    //isAllowedSpectrum(spectrumWS, availableWS, usedWS, left) && isAllowedSpectrum(spectrumRY, availableRY, usedRY, left)
 
   private
 
