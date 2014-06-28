@@ -5,6 +5,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.collection.mutable
 import scala.io.Source
+import scala.compat.Platform
 
 trait Count
 object One extends Count
@@ -133,6 +134,7 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
   val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, sequenceLength, spectrumWS, spectrumRY))) }
   var currentSlave = 0
   var nodesCount: Long = 0
+  val startTime = Platform.currentTime
 
   def receive = {
     case node@Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
@@ -144,11 +146,13 @@ class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[S
       currentSlave = (currentSlave + 1) % slaveCount
       nodesCount += 1
       if(nodesCount % 100000 == 0) println(s"Searched $nodesCount nodes so far...")
-      context.setReceiveTimeout(100 milliseconds)
+      context.setReceiveTimeout(20 milliseconds)
     }
 
     case ReceiveTimeout => {
+      val time = (Platform.currentTime - startTime) / 1000.0
       println(s"Searched $nodesCount nodes")
+      println(s"Elapsed time: $time")
       context.system.shutdown()
     }
   }
