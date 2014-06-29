@@ -22,6 +22,10 @@ case class Sequence(val data: String) {
     other.length == length && data.zip(other.data).forall { case (a, b) => matchLetter(a, b) }
   }
 
+  def append(other: Sequence) = Sequence(data + other.data)
+
+  def append(letter: Char) = Sequence(data + letter)
+
   def normalizedWS = normalized(0)
 
   def normalizedRY = normalized(1)
@@ -29,9 +33,9 @@ case class Sequence(val data: String) {
   private
 
   def normalized(t: Int) = {
-    val newSeq: String = data.dropRight(1).map { l =>
+    val newSeq: String = data.map { l =>
       matchings(l)(t)
-    }.mkString("") + data.last
+    }.mkString("")
     Sequence(newSeq)
   }
 
@@ -42,15 +46,15 @@ case class Sequence(val data: String) {
   }
 
   val matchings = Map(
-    'A' -> List('W', 'R'),
-    'C' -> List('S', 'Y'),
-    'T' -> List('W', 'Y'),
-    'G' -> List('S', 'R')
+    'A' -> Array('W', 'R'),
+    'C' -> Array('S', 'Y'),
+    'T' -> Array('W', 'Y'),
+    'G' -> Array('S', 'R')
   )
 
 }
 
-case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], val usedWS: Map[Sequence, Int], val usedRY: Map[Sequence, Int], val sequence: Sequence) {
+case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], val usedWS: Map[Sequence, Int], val usedRY: Map[Sequence, Int], val sequence: Sequence, val normalized: (Sequence, Sequence)) {
 
   def isFinished: Boolean =
     (availableWS diff usedWS.keySet).size == 0 && (availableRY diff usedRY.keySet).size == 0
@@ -76,26 +80,21 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
 
 class Solver(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) {
 
-  val moves = mutable.Map[Sequence, Set[(Sequence, Sequence)]]()
-
   def solve(node: Node): Iterator[Node] = node match {
-    case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
-      //println(s"Depth: ${sequence.length}")
-      val last = sequence.last(kmerLength - 1)
+    case Node(availableWS, availableRY, usedWS, usedRY, sequence, (normalizedWS, normalizedRY)) => {
 
-      if (!moves.contains(last)) {
-        val potential = basicNucleotides.map { n =>
-          val potentialSequence = Sequence(last.data + n)
-          (potentialSequence.normalizedWS, potentialSequence.normalizedRY)
-        }
-        moves.put(last, potential.toSet)
+      val moves = basicNucleotides.map { n =>
+        (normalizedWS.drop append n, normalizedRY.drop append n)
       }
 
       (for {
-        (ws, ry) <- moves(last) if node.allowMove(ws, ry)
+        (ws, ry) <- moves if node.allowMove(ws, ry)
       } yield {
-        val nextSequence = Sequence(sequence.data + ws.data.last)
-        Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
+        val lastLetter = Sequence(ws.data.last.toString)
+        val nextSequence = sequence append lastLetter
+        val nextNormalizedWS = normalizedWS.drop append lastLetter.normalizedWS
+        val nextNormalizedRY = normalizedRY.drop append lastLetter.normalizedRY
+        Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence, (nextNormalizedWS, nextNormalizedRY))
       }).filter { nextNode =>
         if (nextNode.isAllowed(spectrumWS, spectrumRY, sequenceLength - sequence.length))
           true
@@ -223,6 +222,6 @@ object Main {
 
     val sequencer = new Sequencer(sequenceLength, probeLength, s1.toMap, s2.toMap)
 
-    sequencer start Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial)
+    sequencer start Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial, (initial.normalizedWS, initial.normalizedRY))
   }
 }
