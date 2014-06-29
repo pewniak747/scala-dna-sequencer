@@ -1,8 +1,5 @@
 package sequencer
 
-import akka.actor._
-import scala.concurrent.duration._
-import scala.language.postfixOps
 import scala.collection.mutable
 import scala.io.Source
 import scala.compat.Platform
@@ -77,12 +74,12 @@ case class Node(val availableWS: Set[Sequence], val availableRY: Set[Sequence], 
 
 }
 
-class Slave(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) extends Actor {
+class Solver(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) {
 
   val moves = mutable.Map[Sequence, Set[(Sequence, Sequence)]]()
 
-  def receive = {
-    case node@Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
+  def solve(node: Node): List[Node] = node match { 
+    case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
       val last = sequence.last(kmerLength - 1)
 
       if (!moves.contains(last)) {
@@ -93,16 +90,19 @@ class Slave(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Se
         moves.put(last, potential.toSet)
       }
 
-      for {
+      (for {
         (ws, ry) <- moves(last) if node.allowMove(ws, ry)
       } yield {
         val nextSequence = Sequence(sequence.data + ws.data.last)
-        val nextNode = Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
+        Node(cutSpectrum(spectrumWS, availableWS, ws), cutSpectrum(spectrumRY, availableRY, ry), incrementUsed(usedWS, ws), incrementUsed(usedRY, ry), nextSequence)
+      }).filter { nextNode =>
         if (nextNode.isAllowed(spectrumWS, spectrumRY, sequenceLength - sequence.length))
-          sender ! nextNode 
-        else
+          true
+        else {
           println("CUT at depth " + sequence.length)
-      }
+          false
+        }
+      }.toList
     }
   }
 
@@ -125,51 +125,71 @@ class Slave(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[Se
   val basicNucleotides = List('A', 'C', 'T', 'G')
 }
 
-class Master(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count], val slaveCount: Int) extends Actor {
+class Sequencer(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Map[Sequence, Count], val spectrumRY: Map[Sequence, Count]) {
 
   require(sequenceLength > 1)
   require(kmerLength > 1)
-  require(slaveCount > 0)
 
-  val slaves = Vector.fill(slaveCount) { context.actorOf(Props(new Slave(kmerLength, sequenceLength, spectrumWS, spectrumRY))) }
-  var currentSlave = 0
   var nodesCount: Long = 0
   var solutionsCount: Long = 0
   val startTime = Platform.currentTime
+  val solver = new Solver(kmerLength, sequenceLength, spectrumWS, spectrumRY)
+  var queue = List[Node]()
 
-  def receive = {
-    case node@Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
+  def start(node: Node) = {
+    enqueue(node)
+    while (!queue.isEmpty) {
+      val node = dequeue
+      val results = solve(node)
+      enqueue(results)
+    }
+    finished
+  }
+
+  def finished = {
+    val time = (Platform.currentTime - startTime) / 1000.0
+    val wsOnes = spectrumWS.values.filter { _ == One }.size
+    val wsMores = spectrumWS.values.filter { _ == More }.size
+    val ryOnes = spectrumRY.values.filter { _ == One }.size
+    val ryMores = spectrumRY.values.filter { _ == More }.size
+
+    println("-----")
+    println("Finished processing")
+    println(s"Sequence length: $sequenceLength")
+    println(s"Probe length: $kmerLength")
+    println(s"Spectrum WS ones: $wsOnes")
+    println(s"Spectrum WS mores: $wsMores")
+    println(s"Spectrum RY ones: $ryOnes")
+    println(s"Spectrum RY mores: $ryMores")
+    println(s"Found solutions: $solutionsCount")
+    println(s"Searched nodes: $nodesCount")
+    println(s"Elapsed time: $time")
+  }
+
+  def solve(node: Node): List[Node] = node match {
+    case Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
       println("Found solution: " + sequence)
       solutionsCount += 1
+      List()
     }
 
     case node@Node(_, _, _, _, sequence) => {
-      slaves(currentSlave) ! node
-      currentSlave = (currentSlave + 1) % slaveCount
       nodesCount += 1
       if(nodesCount % 100000 == 0) println(s"Searched $nodesCount nodes so far...")
-      context.setReceiveTimeout(20 milliseconds)
+      solver solve node
     }
+  }
 
-    case ReceiveTimeout => {
-      val time = (Platform.currentTime - startTime) / 1000.0
-      val wsOnes = spectrumWS.values.filter { _ == One }.size
-      val wsMores = spectrumWS.values.filter { _ == More }.size
-      val ryOnes = spectrumRY.values.filter { _ == One }.size
-      val ryMores = spectrumRY.values.filter { _ == More }.size
+  private
 
-      println("-----")
-      println("Finished processing")
-      println(s"Sequence length: $sequenceLength")
-      println(s"Probe length: $kmerLength")
-      println(s"Spectrum WS ones: $wsOnes")
-      println(s"Spectrum WS mores: $wsMores")
-      println(s"Spectrum RY ones: $ryOnes")
-      println(s"Spectrum RY mores: $ryMores")
-      println(s"Found solutions: $solutionsCount")
-      println(s"Searched nodes: $nodesCount")
-      println(s"Elapsed time: $time")
-      context.system.shutdown()
+  def enqueue(node: Node) = queue = node :: queue
+
+  def enqueue(nodes: List[Node]) = queue = nodes ::: queue
+
+  def dequeue = queue match {
+    case node :: rest => {
+      queue = rest
+      node
     }
   }
 }
@@ -218,12 +238,8 @@ object Main {
     val initialWS = s1.keys.find { initial.matches(_) }.get
     val initialRY = s2.keys.find { initial.matches(_) }.get
 
-    val actorSystem = ActorSystem()
+    val sequencer = new Sequencer(sequenceLength, probeLength, s1.toMap, s2.toMap)
 
-    println("Initialized distributed environment...")
-
-    val master = actorSystem.actorOf(Props(new Master(sequenceLength, probeLength, s1.toMap, s2.toMap, 1)))
-
-    master ! Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial)
+    sequencer start Node(s1.keySet.toSet, s2.keySet.toSet, Map(initialWS -> 1), Map(initialRY -> 1), initial)
   }
 }
