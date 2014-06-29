@@ -78,8 +78,9 @@ class Solver(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[S
 
   val moves = mutable.Map[Sequence, Set[(Sequence, Sequence)]]()
 
-  def solve(node: Node): List[Node] = node match { 
+  def solve(node: Node): Iterator[Node] = node match {
     case Node(availableWS, availableRY, usedWS, usedRY, sequence) => {
+      //println(s"Depth: ${sequence.length}")
       val last = sequence.last(kmerLength - 1)
 
       if (!moves.contains(last)) {
@@ -102,7 +103,7 @@ class Solver(val kmerLength: Int, val sequenceLength: Int, val spectrumWS: Map[S
           println("CUT at depth " + sequence.length)
           false
         }
-      }.toList
+      }.toIterator
     }
   }
 
@@ -134,15 +135,9 @@ class Sequencer(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Ma
   var solutionsCount: Long = 0
   val startTime = Platform.currentTime
   val solver = new Solver(kmerLength, sequenceLength, spectrumWS, spectrumRY)
-  var queue = List[Node]()
 
   def start(node: Node) = {
-    enqueue(node)
-    while (!queue.isEmpty) {
-      val node = dequeue
-      val results = solve(node)
-      enqueue(results)
-    }
+    solve(node)
     finished
   }
 
@@ -166,30 +161,18 @@ class Sequencer(val sequenceLength: Int, val kmerLength: Int, val spectrumWS: Ma
     println(s"Elapsed time: $time")
   }
 
-  def solve(node: Node): List[Node] = node match {
-    case Node(_, _, _, _, sequence) if sequence.length == sequenceLength && node.isFinished => {
-      println("Found solution: " + sequence)
-      solutionsCount += 1
-      List()
-    }
-
-    case node@Node(_, _, _, _, sequence) => {
+  def solve(node: Node): Unit = {
+    val sequence = node.sequence
+    if (sequence.length == sequenceLength) {
+      if (node.isFinished) {
+        println("Found solution: " + sequence)
+        solutionsCount += 1
+      }
+    } else {
       nodesCount += 1
       if(nodesCount % 100000 == 0) println(s"Searched $nodesCount nodes so far...")
-      solver solve node
-    }
-  }
-
-  private
-
-  def enqueue(node: Node) = queue = node :: queue
-
-  def enqueue(nodes: List[Node]) = queue = nodes ::: queue
-
-  def dequeue = queue match {
-    case node :: rest => {
-      queue = rest
-      node
+      val nextNodes = solver solve node
+      nextNodes.foreach { node => solve(node) }
     }
   }
 }
